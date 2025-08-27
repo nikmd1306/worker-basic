@@ -16,23 +16,30 @@ if "COMFY_STARTED" not in os.environ:
     proc = subprocess.Popen(
         [
             "python",
+            "-u",
             "ComfyUI/main.py",
             "--listen",
             "0.0.0.0",
             "--port",
             str(COMFY_PORT),
-            "--headless",
+            "--disable-auto-launch",
+            "--dont-print-server",
         ],
         cwd="/workspace",
         env=os.environ.copy(),
     )
     # ждём, пока API поднимется
-    for _ in range(120):
+    for _ in range(180):
         try:
-            requests.get(f"{COMFY_URL}/queue")
-            break
+            r = requests.get(f"{COMFY_URL}/system_stats", timeout=2)
+            if r.status_code == 200:
+                break
         except Exception:
+            if proc.poll() is not None:
+                raise RuntimeError("ComfyUI exited early")
             time.sleep(1)
+    else:
+        raise RuntimeError("ComfyUI failed to start in time")
     os.environ["COMFY_STARTED"] = "1"
 
 
@@ -78,7 +85,8 @@ def handler(job):
     prompt_id = _queue_prompt(wf, client_id)
     outputs = _get_images(prompt_id)
 
-    # соберём абсолютные пути и вернём base64/пути (см. лимит полезной нагрузки)
+    # соберём абсолютные пути и вернём base64/пути
+    # (см. лимит полезной нагрузки)
     images = []
     for _, data in outputs.items():
         for img in data.get("images", []):
